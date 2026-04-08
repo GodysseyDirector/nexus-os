@@ -6,49 +6,93 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "start":         "node backend/server.js",
-    "start:all":     "bash scripts/start-all.sh",
-    "electron":      "electron .",
-    "build:ui":      "cd ../openclawV3/openclaw-dashboard && npm run build && cp -r dist/ ../../nexus-os/ui/dist/",
-    "build":         "bash scripts/build-electron.sh",
+    "start": "node backend/server.js",
+    "start:all": "bash scripts/start-all.sh",
+    "electron": "electron .",
+    "build:ui": "cd ../openclawV3/openclaw-dashboard && npm run build && cp -r dist/ ../../nexus-os/ui/dist/",
+    "build": "bash scripts/build-electron.sh",
     "bundle:models": "bash scripts/bundle-models.sh",
-    "dev":           "NODE_ENV=development electron .",
-    "dist":          "electron-builder --mac dmg"
+    "dev": "NODE_ENV=development electron .",
+    "dist": "electron-builder --mac dmg"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "electron":         "^35.7.5",
+    "electron": "^35.7.5",
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId":       "com.godyssey.nexus-os",
+    "appId": "com.godyssey.nexus-os",
     "productName": "NEXUS",
-    "copyright":   "Godyssey Universal",
-    "directories": { "output": "release" },
+    "copyright": "Godyssey Universal",
+    "directories": {
+      "output": "release"
+    },
     "asar": true,
     "files": [
       "electron/**/*",
-      "backend/**/*",
-      "shared/**/*",
-      "models/**/*",
       "package.json"
     ],
     "extraResources": [
-      { "from": "ui/dist",               "to": "ui/dist"               },
-      { "from": "python-services",       "to": "python-services",
-        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
-      { "from": "data",                  "to": "data"                  }
+      {
+        "from": "bundled",
+        "to": "bundled"
+      },
+      {
+        "from": "backend",
+        "to": "backend"
+      },
+      {
+        "from": "shared",
+        "to": "shared"
+      },
+      {
+        "from": "models",
+        "to": "models"
+      },
+      {
+        "from": "ui/dist",
+        "to": "ui/dist"
+      },
+      {
+        "from": "python-services",
+        "to": "python-services",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "data",
+        "to": "data"
+      }
     ],
     "mac": {
-      "category":       "public.app-category.productivity",
+      "category": "public.app-category.productivity",
       "darkModeSupport": true,
-      "target": [{ "target": "dmg", "arch": ["arm64"] }]
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
     },
     "dmg": {
-      "title":      "NEXUS OS",
-      "window":     { "width": 540, "height": 380 }
+      "title": "NEXUS OS",
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GodysseyDirector",
+      "repo": "nexus-os"
     }
   }
 }

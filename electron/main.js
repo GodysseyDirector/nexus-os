@@ -8,6 +8,45 @@ const { bootAll, shutdownAll } = require('./systemLauncher')
 const { createMainWindow, focusOrCreate } = require('./windowManager')
 const path = require('path')
 
+// ── Auto-updater (GitHub Releases) ───────────────────────────────────────────
+let autoUpdater = null
+try {
+  autoUpdater = require('electron-updater').autoUpdater
+  autoUpdater.autoDownload    = false   // ask user before downloading
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[NEXUS] Update available:', info.version)
+    const { dialog } = require('electron')
+    dialog.showMessageBox({
+      type:    'info',
+      title:   'NEXUS Update Available',
+      message: `Version ${info.version} is available. Download now?`,
+      buttons: ['Download', 'Later'],
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.downloadUpdate()
+    })
+  })
+
+  autoUpdater.on('update-downloaded', () => {
+    const { dialog } = require('electron')
+    dialog.showMessageBox({
+      type:    'info',
+      title:   'NEXUS Update Ready',
+      message: 'Update downloaded. NEXUS will restart to install.',
+      buttons: ['Restart Now', 'Later'],
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall()
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.warn('[NEXUS] Auto-updater error:', err?.message)
+  })
+} catch {
+  console.log('[NEXUS] electron-updater not available — running without auto-update')
+}
+
 // Keep single instance
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -24,6 +63,11 @@ app.whenReady().then(async () => {
   try {
     await bootAll()
     createMainWindow()
+
+    // Check for updates 10s after boot (only in packaged app)
+    if (app.isPackaged && autoUpdater) {
+      setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 10_000)
+    }
   } catch (err) {
     console.error('[NEXUS] Boot failed:', err.message)
     const { dialog } = require('electron')

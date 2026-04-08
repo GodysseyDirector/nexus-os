@@ -1,6 +1,7 @@
 {
   "reasoning":  "qwen3:14b",
-  "fast":       "qwen2.5:7b",
+  "fast":       "gemma3:4b",
+  "fast_alt":   "qwen2.5:7b",
   "fallback":   "qwen3.5:cloud",
   "embed":      "mxbai-embed-large:latest",
   "critic":     "rule-engine",

@@ -28,6 +28,7 @@ const { MODELS, OLLAMA_BASE } = require('../shared/constants')
 const { classifyIntent } = require('./router/intentRouter')
 const { setBroadcast, resetActivityTimer } = require('./events/triggers')
 const eventLoop = require('./events/eventLoop')
+const { rateLimitMiddleware } = require('./middleware/rateLimit')
 
 // ── UI static files ──────────────────────────────────────────────────────────
 const UI_DIR = process.env.UI_DIR || path.resolve(__dirname, '..', 'ui', 'dist')
@@ -104,6 +105,9 @@ let activeBackend = 'ollama'
 
 // ── HTTP Request Handler ──────────────────────────────────────────────────────
 async function handleRequest(req, res) {
+  // Rate limiting — blocks excessive API requests (10/min per IP)
+  if (!rateLimitMiddleware(req, res)) return
+
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type' })
     res.end(); return
