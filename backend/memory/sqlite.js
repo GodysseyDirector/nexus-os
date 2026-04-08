@@ -41,7 +41,8 @@ db.exec(`
     content    TEXT    NOT NULL,
     title      TEXT,
     category   TEXT    DEFAULT 'general',
-    status     TEXT    DEFAULT 'open',
+    -- Lifecycle: pending → active → blocked → completed → archived
+    status     TEXT    DEFAULT 'pending',
     priority   INTEGER DEFAULT 0,
     urgency    INTEGER DEFAULT 1,
     importance INTEGER DEFAULT 1,
@@ -72,16 +73,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tasks_status   ON tasks(status);
 `)
 
+// ── Valid task lifecycle states ───────────────────────────────────────────────
+const TASK_STATUSES = ['pending', 'active', 'blocked', 'completed', 'archived']
+
 // ── Prepared statements (compiled once, reused) ───────────────────────────────
 const _stmts = {
-  insertLog:     db.prepare('INSERT INTO logs (type, payload, source, timestamp) VALUES (?, ?, ?, ?)'),
-  queryLogs:     db.prepare('SELECT * FROM logs WHERE (? IS NULL OR type = ?) ORDER BY timestamp DESC LIMIT ?'),
-  insertTask:    db.prepare('INSERT INTO tasks (content, title, category, priority, urgency, importance, source, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
-  getTasks:      db.prepare('SELECT * FROM tasks WHERE status = ? ORDER BY priority DESC LIMIT ?'),
-  updateTask:    db.prepare('UPDATE tasks SET status = ?, priority = ?, updatedAt = ? WHERE id = ?'),
-  deleteTask:    db.prepare('DELETE FROM tasks WHERE id = ?'),
-  insertInsight: db.prepare('INSERT INTO insights (category, data, score, createdAt) VALUES (?, ?, ?, ?)'),
-  getInsights:   db.prepare('SELECT * FROM insights ORDER BY createdAt DESC LIMIT ?'),
+  insertLog:        db.prepare('INSERT INTO logs (type, payload, source, timestamp) VALUES (?, ?, ?, ?)'),
+  queryLogs:        db.prepare('SELECT * FROM logs WHERE (? IS NULL OR type = ?) ORDER BY timestamp DESC LIMIT ?'),
+  insertTask:       db.prepare('INSERT INTO tasks (content, title, category, priority, urgency, importance, source, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+  getTasks:         db.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY priority DESC LIMIT ?"),
+  getActiveTasks:   db.prepare("SELECT * FROM tasks WHERE status NOT IN ('completed','archived') ORDER BY priority DESC LIMIT ?"),
+  updateTask:       db.prepare('UPDATE tasks SET status = ?, priority = ?, updatedAt = ? WHERE id = ?'),
+  updateTaskStatus: db.prepare('UPDATE tasks SET status = ?, updatedAt = ? WHERE id = ?'),
+  deleteTask:       db.prepare('DELETE FROM tasks WHERE id = ?'),
+  insertInsight:    db.prepare('INSERT INTO insights (category, data, score, createdAt) VALUES (?, ?, ?, ?)'),
+  getInsights:      db.prepare('SELECT * FROM insights ORDER BY createdAt DESC LIMIT ?'),
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -130,8 +136,25 @@ function getTasks({ status = 'open', limit = 50 } = {}) {
 /**
  * updateTask(id, { status?, priority? })
  */
-function updateTask(id, { status = 'open', priority = 0 } = {}) {
+function updateTask(id, { status = 'pending', priority = 0 } = {}) {
   _stmts.updateTask.run(status, priority, Date.now(), id)
+}
+
+/**
+ * updateTaskStatus(id, status) — advance task through lifecycle
+ * Validates against TASK_STATUSES. Returns false if invalid.
+ */
+function updateTaskStatus(id, status) {
+  if (!TASK_STATUSES.includes(status)) return false
+  _stmts.updateTaskStatus.run(status, Date.now(), id)
+  return true
+}
+
+/**
+ * getActiveTasks({ limit? }) — tasks not completed or archived
+ */
+function getActiveTasks({ limit = 50 } = {}) {
+  return _stmts.getActiveTasks.all(limit)
 }
 
 /**
@@ -166,4 +189,9 @@ function _safeParse(str) {
   try { return JSON.parse(str) } catch { return str }
 }
 
-module.exports = { db, insertLog, queryLogs, insertTask, getTasks, updateTask, deleteTask, insertInsight, getInsights }
+module.exports = {
+  db, TASK_STATUSES,
+  insertLog, queryLogs,
+  insertTask, getTasks, getActiveTasks, updateTask, updateTaskStatus, deleteTask,
+  insertInsight, getInsights,
+}

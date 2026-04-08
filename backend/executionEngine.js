@@ -16,9 +16,10 @@
  *   getExecutionLog()         → ExecutionResult[]
  */
 
-const { nexusController } = require('./nexusController')
-const { insertLog }       = require('./memory/sqlite')
-const { logger }          = require('../shared/logger')
+const { nexusController }                        = require('./nexusController')
+const { insertLog, updateTaskStatus, getActiveTasks } = require('./memory/sqlite')
+const { rankTasks }                              = require('./priorityEngine')
+const { logger }                                 = require('../shared/logger')
 
 // ── Execution log (in-memory, last 200, mirrored to SQLite) ──────────────────
 const _execLog   = []
@@ -85,6 +86,86 @@ const HANDLERS = {
   async LOG(payload) {
     insertLog(payload?.type ?? 'AGENT_LOG', payload, 'agent')
     return { success: true }
+  },
+
+  // ── Task lifecycle ──────────────────────────────────────────────────────────
+
+  async EXECUTE_TASK(payload) {
+    const task = payload?.task ?? payload
+    if (!task) return { success: false, error: 'no_task' }
+
+    // Advance task to 'active' status
+    if (task.id) updateTaskStatus(task.id, 'active')
+
+    // Surface to UI
+    if (typeof global._nexusBroadcast === 'function') {
+      global._nexusBroadcast({
+        type:  'TASK_SURFACED',
+        task:  task,
+        ts:    Date.now(),
+      })
+    }
+    return { success: true, data: task }
+  },
+
+  async UPDATE_TASK_STATUS(payload) {
+    const { id, status } = payload ?? {}
+    if (!id || !status) return { success: false, error: 'missing id or status' }
+    const ok = updateTaskStatus(id, status)
+    return { success: ok, error: ok ? undefined : `invalid_status:${status}` }
+  },
+
+  // ── Agent actions ───────────────────────────────────────────────────────────
+
+  async REPRIORITIZE_TASKS() {
+    const tasks   = getActiveTasks({ limit: 200 })
+    const ranked  = rankTasks(tasks)
+    let updated   = 0
+    for (const task of ranked) {
+      if (Math.abs((task.priority ?? 0) - task.priorityScore) > 1) {
+        updateTaskStatus(task.id, task.status ?? 'pending')  // touch updatedAt
+        updated++
+      }
+    }
+    insertLog('TASKS_REPRIORITIZED', { total: tasks.length, updated }, 'executionEngine')
+    return { success: true, data: { total: tasks.length, updated } }
+  },
+
+  async ACTIVATE_PRODUCTIVITY_AGENT() {
+    // Trigger the ProductivityAgent to run immediately next cycle
+    // by emitting a signal — actual agent runs in decision engine
+    insertLog('PRODUCTIVITY_AGENT_ACTIVATED', { ts: Date.now() }, 'executionEngine')
+    if (typeof global._nexusBroadcast === 'function') {
+      global._nexusBroadcast({ type: 'AGENT_ACTIVATED', agent: 'productivity', ts: Date.now() })
+    }
+    return { success: true }
+  },
+
+  async OPTIMIZE_BEHAVIOR() {
+    // Run a fresh insight generation cycle
+    const { generateInsights } = require('./memory/insightEngine')
+    const insight = generateInsights()
+    insertLog('BEHAVIOR_OPTIMIZED', { behaviorScore: insight.behaviorScore }, 'executionEngine')
+    return { success: true, data: insight }
+  },
+
+  async RESTART_SERVICE(payload) {
+    const service = payload?.service ?? payload
+    if (!service) return { success: false, error: 'no_service_name' }
+
+    try {
+      // supervisor is in electron process — call via IPC if available,
+      // otherwise log the intent (supervisor's health-check loop handles restart)
+      if (typeof global._nexusSupervisor?.restartService === 'function') {
+        global._nexusSupervisor.restartService(service)
+      } else {
+        insertLog('RESTART_REQUESTED', { service }, 'executionEngine')
+        logger.warn({ service }, '[executionEngine] Restart requested — supervisor not available in this process')
+      }
+      return { success: true, data: { service } }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
   },
 }
 

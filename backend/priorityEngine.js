@@ -68,4 +68,14 @@ function topN(tasks, n = 5) {
   return rankTasks(tasks).slice(0, n)
 }
 
-module.exports = { calculatePriority, rankTasks, scoreAndSort, topN }
+/**
+ * getTopTasks(n) → top N tasks from SQLite, ranked by priority score
+ * Convenience function used by decisionEngine and contextBuilder.
+ */
+function getTopTasks(n = 5) {
+  const { getActiveTasks } = require('./memory/sqlite')
+  const tasks = getActiveTasks({ limit: 200 })
+  return rankTasks(tasks).slice(0, n)
+}
+
+module.exports = { calculatePriority, rankTasks, scoreAndSort, topN, getTopTasks }

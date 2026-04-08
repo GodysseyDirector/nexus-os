@@ -29,11 +29,13 @@ const { classifyIntent } = require('./router/intentRouter')
 const { setBroadcast, resetActivityTimer } = require('./events/triggers')
 const eventLoop = require('./events/eventLoop')
 const { rateLimitMiddleware } = require('./middleware/rateLimit')
-const { insertLog, getTasks, getInsights } = require('./memory/sqlite')
+const { insertLog, getTasks, getActiveTasks, getInsights, TASK_STATUSES } = require('./memory/sqlite')
 const { startAgentLoop, stopAgentLoop, getAgentStatus } = require('./agents/agentLoop')
 const { startInsightCycle, stopInsightCycle, generateInsights } = require('./memory/insightEngine')
 const { execute, getExecutionLog } = require('./executionEngine')
-const { getModelStats } = require('./router/modelRouter')
+const { getModelStats }            = require('./router/modelRouter')
+const { getDecisionLog }           = require('./decisionEngine')
+const { buildContext }             = require('./contextBuilder')
 
 // ── UI static files ──────────────────────────────────────────────────────────
 const UI_DIR = process.env.UI_DIR || path.resolve(__dirname, '..', 'ui', 'dist')
@@ -168,6 +170,30 @@ async function handleRequest(req, res) {
 
   if (route === '/api/execution-log' && method === 'GET') {
     return json(res, 200, { log: getExecutionLog() })
+  }
+
+  if (route === '/api/decisions' && method === 'GET') {
+    return json(res, 200, { log: getDecisionLog() })
+  }
+
+  if (route === '/api/context' && method === 'GET') {
+    return json(res, 200, buildContext())
+  }
+
+  if (route === '/api/sqlite/tasks/active' && method === 'GET') {
+    return json(res, 200, { tasks: getActiveTasks({ limit: 100 }) })
+  }
+
+  if (route === '/api/sqlite/tasks/status' && method === 'POST') {
+    const body = await readBody(req)
+    const { id, status } = body
+    if (!id || !TASK_STATUSES.includes(status)) {
+      return json(res, 400, { error: `Invalid status. Valid: ${TASK_STATUSES.join(', ')}` })
+    }
+    const { updateTaskStatus } = require('./memory/sqlite')
+    updateTaskStatus(id, status)
+    insertLog('TASK_STATUS_UPDATED', { id, status }, 'api')
+    return json(res, 200, { ok: true, id, status })
   }
 
   if (route === '/api/lm-status') {

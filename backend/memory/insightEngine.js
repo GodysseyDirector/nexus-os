@@ -87,14 +87,23 @@ function generateInsights() {
   // ── Peak hour ─────────────────────────────────────────────────────────────
   const peakHour = hourCounts.indexOf(Math.max(...hourCounts))
 
+  // ── Actionable triggers (closes the Insight → Decision feedback loop) ────
+  const triggers = [
+    behaviorScore < 0.4           && 'LOW_PRODUCTIVITY',
+    anomalies.length > 3          && 'ANOMALY_SPIKE',
+    topErrors.length > 0          && 'ERRORS_DETECTED',
+    (freq['SERVICE_DOWN'] ?? 0) > 2 && 'SERVICE_INSTABILITY',
+  ].filter(Boolean)
+
   const insight = {
     frequentActions: freq,
     anomalies,
     behaviorScore,
     topErrors,
     peakHour,
+    triggers,
     generatedAt: Date.now(),
-    sampleSize: logs.length,
+    sampleSize:  logs.length,
   }
 
   // Persist to DB
