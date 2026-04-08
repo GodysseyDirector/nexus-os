@@ -29,6 +29,11 @@ const { classifyIntent } = require('./router/intentRouter')
 const { setBroadcast, resetActivityTimer } = require('./events/triggers')
 const eventLoop = require('./events/eventLoop')
 const { rateLimitMiddleware } = require('./middleware/rateLimit')
+const { insertLog, getTasks, getInsights } = require('./memory/sqlite')
+const { startAgentLoop, stopAgentLoop, getAgentStatus } = require('./agents/agentLoop')
+const { startInsightCycle, stopInsightCycle, generateInsights } = require('./memory/insightEngine')
+const { execute, getExecutionLog } = require('./executionEngine')
+const { getModelStats } = require('./router/modelRouter')
 
 // ── UI static files ──────────────────────────────────────────────────────────
 const UI_DIR = process.env.UI_DIR || path.resolve(__dirname, '..', 'ui', 'dist')
@@ -125,7 +130,44 @@ async function handleRequest(req, res) {
   }
 
   if (route === '/api/status') {
-    return json(res, 200, { ok: true, gateway: 'online', model: activeModel, backend: activeBackend })
+    return json(res, 200, {
+      ok: true, gateway: 'online', model: activeModel, backend: activeBackend,
+      agents: getAgentStatus(),
+    })
+  }
+
+  // ── New v3 intelligence endpoints ───────────────────────────────────────────
+
+  if (route === '/api/insights' && method === 'GET') {
+    return json(res, 200, { insights: getInsights({ limit: 20 }) })
+  }
+
+  if (route === '/api/insights/generate' && method === 'POST') {
+    const insight = generateInsights()
+    return json(res, 200, { ok: true, insight })
+  }
+
+  if (route === '/api/agents' && method === 'GET') {
+    return json(res, 200, { agents: getAgentStatus() })
+  }
+
+  if (route === '/api/model-stats' && method === 'GET') {
+    return json(res, 200, { stats: getModelStats() })
+  }
+
+  if (route === '/api/execute' && method === 'POST') {
+    const body = await readBody(req)
+    const result = await execute(body)
+    return json(res, result.success ? 200 : 400, result)
+  }
+
+  if (route === '/api/sqlite/tasks' && method === 'GET') {
+    const status = url.searchParams.get('status') || 'open'
+    return json(res, 200, { tasks: getTasks({ status, limit: 100 }) })
+  }
+
+  if (route === '/api/execution-log' && method === 'GET') {
+    return json(res, 200, { log: getExecutionLog() })
   }
 
   if (route === '/api/lm-status') {
@@ -366,10 +408,27 @@ async function boot() {
   // Start autonomous event loop
   eventLoop.start()
 
-  // Broadcast state updates on any mutation
+  // Start agent loop (task monitor, health monitor, memory pruner)
+  startAgentLoop()
+
+  // Start 24h insight cycle
+  startInsightCycle()
+
+  // Expose broadcast globally for executionEngine SPEAK/OPEN_PANEL actions
+  global._nexusBroadcast = broadcast
+
+  // Log server boot to SQLite
+  insertLog('SERVER_BOOT', { port: PORT }, 'server')
+
+  // Broadcast heartbeat every 30s
   setInterval(() => {
     broadcast({ type: 'heartbeat', ts: Date.now(), clients: wsClients.size })
   }, 30000)
 }
+
+process.on('SIGTERM', () => {
+  stopAgentLoop()
+  stopInsightCycle()
+})
 
 boot().catch(err => { console.error('[NEXUS] Boot failed:', err); process.exit(1) })

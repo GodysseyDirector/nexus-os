@@ -8,6 +8,8 @@
  */
 const { getState, _internalSet } = require('./memory/state')
 const { persistState, storeMemory } = require('./memory/memoryEngine')
+const { insertLog, insertTask }     = require('./memory/sqlite')
+const { calculatePriority }         = require('./priorityEngine')
 const { validate, validatePayload } = require('../shared/schemaValidator')
 const { criticCheck } = require('./router/criticLayer')
 const { logger } = require('../shared/logger')
@@ -41,11 +43,25 @@ async function nexusController(action) {
   const updated  = applyMutation(current, action)
   _internalSet(updated)
 
-  // 5. Log action
+  // 5. Log action — in-memory + SQLite (durable)
   const logEntry = { type: action.type, ts: Date.now(), payload: action.payload }
   actionLog.push(logEntry)
   if (actionLog.length > 500) actionLog.shift()
   logger.info({ type: action.type }, 'State mutation applied')
+  insertLog(action.type, action.payload, 'nexusController')
+
+  // 5b. For ADD_TASK, also write to SQLite tasks table with priority score
+  if (action.type === 'ADD_TASK' && action.payload) {
+    const p = action.payload
+    const taskForPriority = { urgency: 1, importance: 1, createdAt: Date.now() }
+    insertTask({
+      content:    p.title || p.content || 'Untitled',
+      title:      p.title,
+      category:   p.tag || p.category || 'general',
+      priority:   Math.round(calculatePriority(taskForPriority)),
+      source:     'nexusController',
+    })
+  }
 
   // 6. Persist to disk (async, non-blocking)
   persistState(getState()).catch(err => logger.error({ err: err.message }, 'Persist failed'))

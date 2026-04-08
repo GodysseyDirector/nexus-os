@@ -1,6 +1,6 @@
 {
   "name": "nexus-os",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "NEXUS OS — Cognitive Desktop Intelligence System",
   "author": "Godyssey Universal",
   "private": true,
@@ -31,6 +31,7 @@
       "output": "release"
     },
     "asar": true,
+    "npmRebuild": true,
     "files": [
       "electron/**/*",
       "package.json"

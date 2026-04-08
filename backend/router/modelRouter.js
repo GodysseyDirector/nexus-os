@@ -14,8 +14,37 @@ const { criticCheckResponse } = require('./criticLayer')
 
 const OLLAMA_HOST = new URL(OLLAMA_BASE)
 
+// ── Model performance stats (in-memory, used for dynamic routing) ─────────────
+const modelStats = {}
+
+function _initStats(model) {
+  if (!modelStats[model]) {
+    modelStats[model] = { latency: [], success: 0, failure: 0, avgLatency: 0 }
+  }
+}
+
+function _recordSuccess(model, latencyMs) {
+  _initStats(model)
+  const s = modelStats[model]
+  s.success++
+  s.latency.push(latencyMs)
+  if (s.latency.length > 20) s.latency.shift()   // rolling window of 20
+  s.avgLatency = s.latency.reduce((a, b) => a + b, 0) / s.latency.length
+}
+
+function _recordFailure(model) {
+  _initStats(model)
+  modelStats[model].failure++
+}
+
+/** Returns current model stats snapshot — used by /api/model-stats */
+function getModelStats() {
+  return { ...modelStats }
+}
+
 /** Call Ollama (non-streaming) */
 async function callOllama(model, prompt, system = '') {
+  const t0 = Date.now()
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model,
@@ -36,15 +65,27 @@ async function callOllama(model, prompt, system = '') {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(raw)
+          _recordSuccess(model, Date.now() - t0)
           resolve(parsed.response || '')
-        } catch (e) { reject(e) }
+        } catch (e) { _recordFailure(model); reject(e) }
       })
     })
-    req.on('error', reject)
-    req.setTimeout(120000, () => { req.destroy(); reject(new Error('Ollama timeout')) })
+    req.on('error', err => { _recordFailure(model); reject(err) })
+    req.setTimeout(120000, () => { req.destroy(); _recordFailure(model); reject(new Error('Ollama timeout')) })
     req.write(body)
     req.end()
   })
+}
+
+/**
+ * bestFastModel() — dynamically picks the faster of FAST or FAST_ALT
+ * based on rolling average latency. Falls back to FAST if no data yet.
+ */
+function bestFastModel() {
+  const a = modelStats[MODELS.FAST]?.avgLatency ?? Infinity
+  const b = modelStats[MODELS.FAST_ALT]?.avgLatency ?? Infinity
+  if (a === Infinity && b === Infinity) return MODELS.FAST
+  return a <= b ? MODELS.FAST : MODELS.FAST_ALT
 }
 
 /** Stream from Ollama — calls onChunk(text) for each token */
@@ -147,9 +188,20 @@ async function runModel(input) {
   }
 }
 
-/** Fast call (no streaming) — uses tiered failover */
+/** Fast call (no streaming) — uses tiered failover with dynamic model selection */
 async function callFast(prompt) {
   return runModel(prompt)
+}
+
+/** Dynamic fast call — picks whichever fast model has lower recent latency */
+async function callFastDynamic(prompt) {
+  const model = bestFastModel()
+  try {
+    return await callOllama(model, prompt)
+  } catch {
+    const alt = model === MODELS.FAST ? MODELS.FAST_ALT : MODELS.FAST
+    return callOllama(alt, prompt)
+  }
 }
 
 /** Reasoning call (non-streaming) */
@@ -174,4 +226,4 @@ async function listModels() {
   })
 }
 
-module.exports = { route, callFast, callReasoning, streamOllama, listModels }
+module.exports = { route, callFast, callFastDynamic, callReasoning, streamOllama, listModels, runModel, getModelStats, bestFastModel }

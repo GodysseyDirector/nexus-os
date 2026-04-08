@@ -4,7 +4,7 @@
  * Boot sequence: Ollama → Backend → Python Services → Window
  */
 const { app, Menu } = require('electron')
-const { bootAll, shutdownAll } = require('./systemLauncher')
+const supervisor = require('./supervisor')
 const { createMainWindow, focusOrCreate } = require('./windowManager')
 const path = require('path')
 
@@ -62,7 +62,7 @@ app.whenReady().then(async () => {
   console.log('[NEXUS] Electron ready — booting system...')
 
   try {
-    await bootAll()
+    await supervisor.startAll()
     createMainWindow()
 
     // Check for updates 10s after boot (only in packaged app)
@@ -87,7 +87,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  shutdownAll()
+  supervisor.stopAll()
 })
 
 // Crash recovery
