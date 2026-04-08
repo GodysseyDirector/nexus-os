@@ -32,6 +32,9 @@ const CYCLE_MS = 5_000
 const agents   = []
 let   _timer   = null
 
+// ── Global tick mutex — prevents any overlap between full cycles ──────────────
+let _tickRunning = false
+
 // ── Utility agent registry (housekeeping agents) ──────────────────────────────
 
 function registerAgent(agent) {
@@ -119,10 +122,16 @@ function startAgentLoop() {
   _registerUtilityAgents()
   _registerGoalAgents()
 
-  // Decision-driven tick (every 5s)
+  // Decision-driven tick (every 5s) — global mutex prevents overlap
   _timer = setInterval(async () => {
-    await _decisionTick()
-    await _utilityTick()
+    if (_tickRunning) return   // drop tick if previous cycle still running
+    _tickRunning = true
+    try {
+      await _decisionTick()
+      await _utilityTick()
+    } finally {
+      _tickRunning = false
+    }
   }, CYCLE_MS)
   _timer.unref?.()
 

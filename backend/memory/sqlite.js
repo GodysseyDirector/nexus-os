@@ -35,6 +35,36 @@ const db      = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
 db.pragma('synchronous = NORMAL')
 
+// ── Automatic backup (every 10 minutes) ──────────────────────────────────────
+const BACKUP_DIR = path.join(DATA_DIR, 'backups')
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true })
+
+const MAX_BACKUPS = 12   // keep last 2 hours (12 × 10min)
+
+function _runBackup() {
+  try {
+    const dest = path.join(BACKUP_DIR, `nexus-${Date.now()}.db`)
+    fs.copyFileSync(DB_PATH, dest)
+
+    // Prune old backups — keep only MAX_BACKUPS most recent
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('nexus-') && f.endsWith('.db'))
+      .map(f => ({ f, t: parseInt(f.replace('nexus-', '').replace('.db', ''), 10) }))
+      .sort((a, b) => b.t - a.t)
+
+    for (const { f } of files.slice(MAX_BACKUPS)) {
+      try { fs.unlinkSync(path.join(BACKUP_DIR, f)) } catch {}
+    }
+  } catch (err) {
+    console.warn('[nexus-sqlite] Backup failed:', err.message)
+  }
+}
+
+// Run once on startup, then every 10 minutes
+setTimeout(_runBackup, 10_000)
+const _backupTimer = setInterval(_runBackup, 10 * 60 * 1000)
+_backupTimer.unref?.()
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

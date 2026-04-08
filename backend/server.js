@@ -9,8 +9,31 @@
  * All outputs are validated by criticLayer.
  */
 
-process.on('uncaughtException',  err  => console.error('[NEXUS] Uncaught:', err.message))
-process.on('unhandledRejection', err  => console.error('[NEXUS] Rejection:', err?.message || err))
+// ── Global error boundary ─────────────────────────────────────────────────────
+// Catches all unhandled errors, logs to SQLite, and broadcasts to UI.
+// Does NOT crash the process — NEXUS stays alive.
+
+function _handleCriticalError(type, err) {
+  const message = err?.message ?? String(err)
+  const stack   = err?.stack   ?? ''
+  console.error(`[NEXUS] ${type}:`, message)
+
+  // Log to SQLite (best-effort — DB may not be ready on very early crash)
+  try {
+    const { insertLog } = require('./memory/sqlite')
+    insertLog(type, { message, stack: stack.slice(0, 500) }, 'errorBoundary')
+  } catch {}
+
+  // Broadcast to any connected UI clients
+  try {
+    if (typeof global._nexusBroadcast === 'function') {
+      global._nexusBroadcast({ type: 'CRITICAL_ERROR', error: message, ts: Date.now() })
+    }
+  } catch {}
+}
+
+process.on('uncaughtException',  err => _handleCriticalError('UNCAUGHT_EXCEPTION', err))
+process.on('unhandledRejection', err => _handleCriticalError('UNHANDLED_REJECTION', err))
 
 const http = require('http')
 const fs   = require('fs')

@@ -23,7 +23,15 @@ const actionLog = []
  * @param {{ type: string, payload: any }} action
  * @returns {Promise<object>} Updated state snapshot
  */
-async function nexusController(action) {
+async function nexusController(action, opts = {}) {
+  // 0. Fast guard — catches null/undefined/non-object before anything else
+  if (!action || typeof action !== 'object') {
+    throw new Error('[Controller] Invalid action: must be an object')
+  }
+  if (!action.type || typeof action.type !== 'string' || !action.type.trim()) {
+    throw new Error('[Controller] Invalid action: missing or empty type')
+  }
+
   // 1. Schema validation
   const schemaCheck = validate(action)
   if (!schemaCheck.ok) throw new Error(`[Schema] ${schemaCheck.error}`)

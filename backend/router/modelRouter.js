@@ -42,6 +42,30 @@ function getModelStats() {
   return { ...modelStats }
 }
 
+// ── Timeout guard ─────────────────────────────────────────────────────────────
+const MODEL_TIMEOUTS = {
+  [MODELS.FAST]:      30_000,   // 30s — fast model must respond quickly
+  [MODELS.FAST_ALT]:  30_000,
+  [MODELS.REASONING]: 90_000,   // 90s — reasoning model may need longer
+  default:            30_000,
+}
+
+/**
+ * safeModelCall(fn, model?) → Promise
+ *
+ * Races fn() against a timeout. Never hangs the caller.
+ * Throws on timeout so callers can fall through to failover.
+ */
+async function safeModelCall(fn, model = 'default') {
+  const ms = MODEL_TIMEOUTS[model] ?? MODEL_TIMEOUTS.default
+  return Promise.race([
+    fn(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Model timeout after ${ms}ms: ${model}`)), ms)
+    ),
+  ])
+}
+
 /** Call Ollama (non-streaming) */
 async function callOllama(model, prompt, system = '') {
   const t0 = Date.now()
@@ -71,7 +95,12 @@ async function callOllama(model, prompt, system = '') {
       })
     })
     req.on('error', err => { _recordFailure(model); reject(err) })
-    req.setTimeout(120000, () => { req.destroy(); _recordFailure(model); reject(new Error('Ollama timeout')) })
+    // Inner socket timeout — shorter than safeModelCall so we get a clean error
+    req.setTimeout(MODEL_TIMEOUTS[model] ?? 30_000, () => {
+      req.destroy()
+      _recordFailure(model)
+      reject(new Error(`Ollama socket timeout: ${model}`))
+    })
     req.write(body)
     req.end()
   })
@@ -142,7 +171,10 @@ async function route(input, conversationHistory = []) {
       { role: 'user', content: input }
     ]
     let fullText = ''
-    await streamOllama(model, messages, chunk => { fullText += chunk })
+    await safeModelCall(
+      () => streamOllama(model, messages, chunk => { fullText += chunk }),
+      model
+    )
     return { text: fullText, model, intent }
   } catch (err) {
     logger.warn({ model, err: err.message }, 'Primary model failed')
@@ -151,14 +183,20 @@ async function route(input, conversationHistory = []) {
     if (model === MODELS.FAST) {
       try {
         let fallText = ''
-        await streamOllama(MODELS.FAST_ALT, [{ role: 'user', content: input }], c => { fallText += c })
+        await safeModelCall(
+          () => streamOllama(MODELS.FAST_ALT, [{ role: 'user', content: input }], c => { fallText += c }),
+          MODELS.FAST_ALT
+        )
         return { text: fallText, model: MODELS.FAST_ALT, intent }
       } catch {}
     }
 
     // Final fallback: cloud / MODELS.FALLBACK
     try {
-      const fallback = await callOllama(MODELS.FALLBACK, input)
+      const fallback = await safeModelCall(
+        () => callOllama(MODELS.FALLBACK, input),
+        MODELS.FALLBACK
+      )
       return { text: fallback, model: MODELS.FALLBACK, intent }
     } catch (err2) {
       logger.error({ err: err2.message }, 'All models failed')
@@ -176,11 +214,11 @@ async function route(input, conversationHistory = []) {
  */
 async function runModel(input) {
   try {
-    return await callOllama(MODELS.FAST, input)
+    return await safeModelCall(() => callOllama(MODELS.FAST, input), MODELS.FAST)
   } catch (err) {
     logger.warn({ err: err.message }, `[modelRouter] ${MODELS.FAST} failed — trying ${MODELS.FAST_ALT}`)
     try {
-      return await callOllama(MODELS.FAST_ALT, input)
+      return await safeModelCall(() => callOllama(MODELS.FAST_ALT, input), MODELS.FAST_ALT)
     } catch (err2) {
       logger.error({ err: err2.message }, '[modelRouter] All fast models failed')
       return { error: true, message: 'Model unavailable — try again shortly' }
@@ -226,4 +264,4 @@ async function listModels() {
   })
 }
 
-module.exports = { route, callFast, callFastDynamic, callReasoning, streamOllama, listModels, runModel, getModelStats, bestFastModel }
+module.exports = { route, callFast, callFastDynamic, callReasoning, streamOllama, listModels, runModel, safeModelCall, getModelStats, bestFastModel }
