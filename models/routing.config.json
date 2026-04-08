@@ -1,0 +1,10 @@
+{
+  "reasoning":  "qwen3:14b",
+  "fast":       "qwen2.5:7b",
+  "fallback":   "qwen3.5:cloud",
+  "embed":      "mxbai-embed-large:latest",
+  "critic":     "rule-engine",
+  "speech":     "whisper",
+  "tts":        "piper",
+  "_note": "reasoning = complex analysis | fast = classification + simple queries | fallback = cloud when local is down"
+}

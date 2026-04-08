@@ -1,0 +1,9 @@
+{
+  "_note": "Gemma via Ollama — pull with: ollama pull gemma3:4b",
+  "provider": "ollama",
+  "model": "gemma3:4b",
+  "role": "fast-router",
+  "options": { "temperature": 0.3, "num_predict": 256 },
+  "use_when": "gemma is faster than qwen2.5:7b for pure classification tasks",
+  "pull_command": "ollama pull gemma3:4b"
+}

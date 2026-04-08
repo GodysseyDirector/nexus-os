@@ -1,0 +1,54 @@
+{
+  "name": "nexus-os",
+  "version": "2.0.0",
+  "description": "NEXUS OS — Cognitive Desktop Intelligence System",
+  "author": "Godyssey Universal",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start":         "node backend/server.js",
+    "start:all":     "bash scripts/start-all.sh",
+    "electron":      "electron .",
+    "build:ui":      "cd ../openclawV3/openclaw-dashboard && npm run build && cp -r dist/ ../../nexus-os/ui/dist/",
+    "build":         "bash scripts/build-electron.sh",
+    "bundle:models": "bash scripts/bundle-models.sh",
+    "dev":           "NODE_ENV=development electron .",
+    "dist":          "electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "electron":         "^35.7.5",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId":       "com.godyssey.nexus-os",
+    "productName": "NEXUS",
+    "copyright":   "Godyssey Universal",
+    "directories": { "output": "release" },
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "backend/**/*",
+      "shared/**/*",
+      "models/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "ui/dist",               "to": "ui/dist"               },
+      { "from": "python-services",       "to": "python-services",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
+      { "from": "data",                  "to": "data"                  }
+    ],
+    "mac": {
+      "category":       "public.app-category.productivity",
+      "darkModeSupport": true,
+      "target": [{ "target": "dmg", "arch": ["arm64"] }]
+    },
+    "dmg": {
+      "title":      "NEXUS OS",
+      "window":     { "width": 540, "height": 380 }
+    }
+  }
+}

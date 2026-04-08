@@ -1,0 +1,12 @@
+node_modules/
+release/
+ui/dist/
+data/state.json
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.env
+.DS_Store
+*.log
+python-services/tts-engine/models/*.onnx
+python-services/tts-engine/models/*.onnx.json
