@@ -104,19 +104,52 @@ async function route(input, conversationHistory = []) {
     await streamOllama(model, messages, chunk => { fullText += chunk })
     return { text: fullText, model, intent }
   } catch (err) {
-    logger.warn({ model, err: err.message }, 'Primary model failed, trying fallback')
+    logger.warn({ model, err: err.message }, 'Primary model failed')
+
+    // Fast-path failover: gemma → qwen2.5
+    if (model === MODELS.FAST) {
+      try {
+        let fallText = ''
+        await streamOllama(MODELS.FAST_ALT, [{ role: 'user', content: input }], c => { fallText += c })
+        return { text: fallText, model: MODELS.FAST_ALT, intent }
+      } catch {}
+    }
+
+    // Final fallback: cloud / MODELS.FALLBACK
     try {
       const fallback = await callOllama(MODELS.FALLBACK, input)
       return { text: fallback, model: MODELS.FALLBACK, intent }
     } catch (err2) {
-      throw new Error(`All models failed: ${err2.message}`)
+      logger.error({ err: err2.message }, 'All models failed')
+      return { text: 'Model unavailable — try again shortly', model: 'none', intent, error: true }
     }
   }
 }
 
-/** Fast call (no streaming, quick response) */
+/**
+ * runModel(input) — tiered failover for fast-path calls.
+ *
+ * Tier 1: gemma3:4b   (fastest, lowest memory)
+ * Tier 2: qwen2.5:7b  (fallback if Gemma fails or is not installed)
+ * Tier 3: graceful error object (never throws — caller always gets a response)
+ */
+async function runModel(input) {
+  try {
+    return await callOllama(MODELS.FAST, input)
+  } catch (err) {
+    logger.warn({ err: err.message }, `[modelRouter] ${MODELS.FAST} failed — trying ${MODELS.FAST_ALT}`)
+    try {
+      return await callOllama(MODELS.FAST_ALT, input)
+    } catch (err2) {
+      logger.error({ err: err2.message }, '[modelRouter] All fast models failed')
+      return { error: true, message: 'Model unavailable — try again shortly' }
+    }
+  }
+}
+
+/** Fast call (no streaming) — uses tiered failover */
 async function callFast(prompt) {
-  return callOllama(MODELS.FAST, prompt)
+  return runModel(prompt)
 }
 
 /** Reasoning call (non-streaming) */

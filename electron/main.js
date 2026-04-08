@@ -12,8 +12,9 @@ const path = require('path')
 let autoUpdater = null
 try {
   autoUpdater = require('electron-updater').autoUpdater
-  autoUpdater.autoDownload    = false   // ask user before downloading
+  autoUpdater.autoDownload         = false   // ask user before downloading
   autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.allowPrerelease      = false   // stable channel only
 
   autoUpdater.on('update-available', (info) => {
     console.log('[NEXUS] Update available:', info.version)
